@@ -1,0 +1,19 @@
+{"servedUser": "@asen:nekos.chat",
+  "matrix": {
+    "baseURL": "https://matrix.tsubasa.moe/",
+    "username": "@neko:tsubasa.moe",
+    "password": "suqaz7f0r",
+    "deviceID": "XKQFNUPDWD",
+    "token": "syt_bmVrbw_HduvTcnrWSacjStyUphK_1dLapv",
+    "asyncUpload": true
+  },
+  "telegram": {
+    "token": "7897906879:AAH2jsxZPZ4IWYoZZkDYlFL2K1Bbb7MtfdA",
+    "webhook": {
+      "enable": false,
+      "url": "",
+      "listenPort": 0
+    }
+  },
+  "database": "MeowLink.db"
+}

@@ -11,10 +11,10 @@ type Config struct {
 }
 
 type Content struct {
-	ServedUser string `json:"servedUser"`
-	Matrix   Matrix   `json:"matrix"`
-	Telegram Telegram `json:"telegram"`
-	DataBase string   `json:"database"`
+	ServedUser string   `json:"servedUser"`
+	Matrix     Matrix   `json:"matrix"`
+	Telegram   Telegram `json:"telegram"`
+	DataBase   DataBase `json:"databasePath"`
 }
 
 type Matrix struct {
@@ -37,6 +37,10 @@ type Webhook struct {
 	Port   int    `json:"listenPort"`
 }
 
+type DataBase struct {
+	RoomList string `json:"roomList"`
+}
+
 func NewConfig(path string) Config {
 	return Config{
 		Path: path,
@@ -53,7 +57,9 @@ func NewConfig(path string) Config {
 					Enable: false,
 				},
 			},
-			DataBase: "MeowLink.db",
+			DataBase: DataBase{
+				RoomList: "MeowLink/roomlist.db",
+			},
 		},
 	}
 }

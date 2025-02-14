@@ -6,29 +6,29 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/rs/zerolog/log"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 )
 
 func (w *Worker) FromMatrix(ctx context.Context, ev *event.Event) {
-	// 如果不是指定用户发送的消息，忽略
-	if ev.Sender.String() != w.Config.Content.ServedUser {
+	// 检查消息是否是自己发的
+	if ev.Sender == id.UserID(w.Config.Content.Matrix.Username) {
 		return
 	}
-
-	// 从 kv 中获取 Telegram Chat ID
-	chatID, found := w.KVStore.GetChatID(ev.RoomID)
+	// 从 database.RoomList 中获取房间相关信息
+	info, found := w.DB.RoomList.GetRoomInfoByRoomID(ev.RoomID)
+	log.Info().Bool("Found", found).
+		Str("RoomID", ev.RoomID.String())
 	if !found {
-		// 如果没有找到 Chat ID，说明根本没有对应的 Chat，直接返回
 		return
 	}
 
 	log.Info().
-		Str("RoomID", ev.RoomID.String()).
-		Str("Text", ev.Content.AsMessage().Body).
-		Msg("Received message from Matrix")
+		Str("RoomName", info.RoomName).
+		Str("Text", ev.Content.AsMessage().Body)
 
 	// 转发消息到 Telegram
 	_, err := w.Telegram.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: chatID,
+		ChatID: info.ChatID,
 		Text:   ev.Content.AsMessage().Body,
 	})
 
@@ -38,5 +38,18 @@ func (w *Worker) FromMatrix(ctx context.Context, ev *event.Event) {
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to send message to Matrix")
 		}
+	}
+
+	// 发送已读回执
+	err = w.Matrix.SendReceipt(ctx, ev.RoomID, ev.ID, "m.read", nil)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to send receipt")
+	}
+
+	// 更新房间信息
+	// 这不是很急的操作，所以使用已经用完的 goroutine 而不是新的 goroutine
+	err = w.UpdateProfile(&info)
+	if err != nil {
+		log.Err(err).Msg("Failed to update profile")
 	}
 }

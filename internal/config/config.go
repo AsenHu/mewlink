@@ -58,7 +58,7 @@ func NewConfig(path string) Config {
 				},
 			},
 			DataBase: DataBase{
-				RoomList: "MeowLink/roomlist.db",
+				RoomList: "MeowLink/roomlist.json",
 			},
 		},
 	}

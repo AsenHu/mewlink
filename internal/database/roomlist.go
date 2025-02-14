@@ -1,7 +1,7 @@
 package database
 
 import (
-	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,7 +48,7 @@ func (rl *RoomList) Load() error {
 		return err
 	}
 	defer f.Close()
-	dec := gob.NewDecoder(f)
+	dec := json.NewDecoder(f)
 	var list []RoomInfo
 	err = dec.Decode(&list)
 	if err != nil {
@@ -131,7 +131,7 @@ func (rl *RoomList) SaveNow() (err error) {
 	for _, room := range rl.ByChatID {
 		list = append(list, room)
 	}
-	enc := gob.NewEncoder(f)
+	enc := json.NewEncoder(f)
 	err = enc.Encode(list)
 	rl.IsSyncedWithFile = true
 	return

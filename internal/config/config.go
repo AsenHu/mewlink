@@ -3,6 +3,9 @@ package config
 import (
 	"encoding/json"
 	"os"
+
+	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix/id"
 )
 
 type Config struct {
@@ -11,19 +14,21 @@ type Config struct {
 }
 
 type Content struct {
-	ServedUser string `json:"servedUser"`
-	Matrix   Matrix   `json:"matrix"`
-	Telegram Telegram `json:"telegram"`
-	DataBase string   `json:"database"`
+	LogLevel   zerolog.Level `json:"logLevel"`
+	ServedUser string        `json:"servedUser"`
+	Matrix     Matrix        `json:"matrix"`
+	Telegram   Telegram      `json:"telegram"`
+	DataBase   string        `json:"databasePath"`
+	Version    uint8         `json:"version"`
 }
 
 type Matrix struct {
-	BaseURL     string `json:"baseURL"`
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	DeviceID    string `json:"deviceID"`
-	Token       string `json:"token"`
-	AsyncUpload bool   `json:"asyncUpload"`
+	BaseURL     string      `json:"baseURL"`
+	Username    string      `json:"username"`
+	Password    string      `json:"password"`
+	DeviceID    id.DeviceID `json:"deviceID"`
+	Token       string      `json:"token"`
+	AsyncUpload bool        `json:"asyncUpload"`
 }
 
 type Telegram struct {
@@ -37,15 +42,17 @@ type Webhook struct {
 	Port   int    `json:"listenPort"`
 }
 
-func NewConfig(path string) Config {
-	return Config{
+func NewConfig(path string) *Config {
+	return &Config{
 		Path: path,
 		Content: Content{
+			LogLevel:   zerolog.InfoLevel,
 			ServedUser: "@user:example.com",
 			Matrix: Matrix{
 				BaseURL:     "https://example.com",
 				Username:    "@bot:example.com",
 				Password:    "password",
+				DeviceID:    "MEWLINK",
 				AsyncUpload: true,
 			},
 			Telegram: Telegram{
@@ -53,33 +60,20 @@ func NewConfig(path string) Config {
 					Enable: false,
 				},
 			},
-			DataBase: "MeowLink.db",
+			DataBase: "mewlink.db",
+			Version:  1,
 		},
 	}
 }
 
 func (c *Config) Load() (err error) {
-	// 检查文件是否存在
-	_, err = os.Stat(c.Path)
-	if os.IsNotExist(err) {
-		// 文件不存在则创建
-		err = c.Save()
-		if err != nil {
-			return
-		}
-	}
-
 	// 读取文件
 	buffer, err := os.ReadFile(c.Path)
 	if err != nil {
 		return
 	}
 	// 解析文件
-	err = json.Unmarshal(buffer, &c.Content)
-	if err != nil {
-		return
-	}
-	return
+	return json.Unmarshal(buffer, &c.Content)
 }
 
 func (c *Config) Save() (err error) {

@@ -26,4 +26,5 @@ go.work.sum
 
 # Config and Database
 config.json
-MeowLink.db
+MeowLink/
+mewlink.db

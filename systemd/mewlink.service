@@ -1,0 +1,14 @@
+[Unit]
+Description=Mewlink Daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/mewlink -c /etc/mewlink/config.json
+DynamicUser=yes
+StateDirectory=mewlink
+WorkingDirectory=/var/lib/mewlink
+ConfigurationDirectory=mewlink
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

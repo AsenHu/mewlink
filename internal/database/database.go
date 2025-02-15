@@ -1,5 +1,6 @@
 package database
 
 type DataBase struct {
-	RoomList *RoomList
+	RoomList  *RoomList
+	EventList *EventList
 }

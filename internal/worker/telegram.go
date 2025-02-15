@@ -4,6 +4,7 @@ import (
 	"MewLink/internal/database"
 	"context"
 	"strconv"
+	"sync"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -12,17 +13,20 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-func (w *Worker) FromTelegram(ctx context.Context, b *bot.Bot, update *models.Update) {
+func (w *Worker) FromTelegram(ctx context.Context, wg *sync.WaitGroup, b *bot.Bot, update *models.Update) {
 	username := GetUserName(update)
 	log.Info().
 		Str("Username", username).
-		Str("Text", update.Message.Text)
+		Str("Text", update.Message.Text).
+		Msg("Received message from Telegram")
 
 	// 从 database.RoomList 中获取房间相关信息
 	info, found := w.DB.RoomList.GetRoomInfoByChatID(update.Message.Chat.ID)
 	if !found {
 		log.Info().Msg("New chat, create room")
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			_, err := b.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: update.Message.Chat.ID,
 				Text:   "Welcome to MeowLink! 🐾\nFrom this message onwards, your message will be forwarded to Matrix friends.",
@@ -44,7 +48,9 @@ func (w *Worker) FromTelegram(ctx context.Context, b *bot.Bot, update *models.Up
 			w.SendErrToTG(ctx, update.Message.Chat.ID, err)
 			return
 		}
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			info = database.RoomInfo{
 				ChatID:   update.Message.Chat.ID,
 				RoomID:   resp.RoomID,
@@ -53,7 +59,7 @@ func (w *Worker) FromTelegram(ctx context.Context, b *bot.Bot, update *models.Up
 			err = w.DB.RoomList.Set(info)
 			if err != nil {
 				w.SendErrToTG(ctx, update.Message.Chat.ID, err)
-				log.Fatal().Err(err)
+				log.Fatal().Err(err).Msg("Failed to save room info")
 			}
 		}()
 		// 房间创建完后的第一条消息不转发，因为 Matrix HS 很可能还没准备好房间

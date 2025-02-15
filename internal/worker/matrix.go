@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"MewLink/internal/database"
 	"context"
 
 	"github.com/go-telegram/bot"
@@ -22,12 +23,33 @@ func (w *Worker) FromMatrix(ctx context.Context, ev *event.Event) {
 		return
 	}
 
+	// 检查消息是否处理过
+	_, found = w.DB.EventList.GetEventInfoByEventID(ev.ID)
+	if found {
+		log.Warn().Str("EventID", ev.ID.String()).Msg("Event already processed")
+		return
+	}
+
 	log.Info().
 		Str("RoomName", info.RoomName).
-		Str("Text", ev.Content.AsMessage().Body)
+		Str("Text", ev.Content.AsMessage().Body).
+		Msg("Received message from Matrix")
+
+	// 检查是否是空消息
+	if ev.Content.AsMessage().Body == "" {
+		return
+	}
+
+	// 保存消息
+	err := w.DB.EventList.Set(database.EventInfo{
+		EventID: ev.ID,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to save event")
+	}
 
 	// 转发消息到 Telegram
-	_, err := w.Telegram.SendMessage(ctx, &bot.SendMessageParams{
+	_, err = w.Telegram.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: info.ChatID,
 		Text:   ev.Content.AsMessage().Body,
 	})

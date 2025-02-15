@@ -3,6 +3,8 @@ package config
 import (
 	"encoding/json"
 	"os"
+
+	"maunium.net/go/mautrix/id"
 )
 
 type Config struct {
@@ -18,12 +20,12 @@ type Content struct {
 }
 
 type Matrix struct {
-	BaseURL     string `json:"baseURL"`
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	DeviceID    string `json:"deviceID"`
-	Token       string `json:"token"`
-	AsyncUpload bool   `json:"asyncUpload"`
+	BaseURL     string      `json:"baseURL"`
+	Username    string      `json:"username"`
+	Password    string      `json:"password"`
+	DeviceID    id.DeviceID `json:"deviceID"`
+	Token       string      `json:"token"`
+	AsyncUpload bool        `json:"asyncUpload"`
 }
 
 type Telegram struct {
@@ -38,7 +40,8 @@ type Webhook struct {
 }
 
 type DataBase struct {
-	RoomList string `json:"roomList"`
+	RoomList  string `json:"roomList"`
+	EventList string `json:"eventList"`
 }
 
 func NewConfig(path string) Config {
@@ -58,7 +61,8 @@ func NewConfig(path string) Config {
 				},
 			},
 			DataBase: DataBase{
-				RoomList: "MeowLink/roomlist.json",
+				RoomList:  "MeowLink/roomlist.json",
+				EventList: "MeowLink/eventlist.json",
 			},
 		},
 	}

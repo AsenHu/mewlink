@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -137,30 +138,47 @@ func (rl *RoomList) SaveNow() (err error) {
 	return
 }
 
-func (rl *RoomList) LazySave() {
+func (rl *RoomList) LazySave(ctx context.Context, wg *sync.WaitGroup) {
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		log.Info().Msg("LazySave started in RoomList")
 		for {
-			time.Sleep(5 * time.Minute)
-			// 检查是否需要同步
-			rl.Mutex.RLock()
-			if rl.IsSyncedWithFile {
+			select {
+			case <-ctx.Done():
+				// 上下文结束，立刻保存
+				log.Info().Msg("LazySave cancelled in RoomList")
+				rl.Mutex.Lock()
+				err := rl.SaveNow()
+				if err != nil {
+					log.Warn().Err(err).Msg("LazySave failed in RoomList during context cancellation. Some not important data may be lost")
+				} else {
+					log.Info().Msg("LazySave succeeded in RoomList during context cancellation")
+					rl.IsSyncedWithFile = true
+				}
+				rl.Mutex.Unlock()
+				return
+			case <-time.After(5 * time.Minute):
+				// 检查是否需要同步
+				rl.Mutex.RLock()
+				if rl.IsSyncedWithFile {
+					rl.Mutex.RUnlock()
+					log.Debug().Msg("LazySave skipped in RoomList, Because we are lazy")
+					continue
+				}
 				rl.Mutex.RUnlock()
-				log.Debug().Msg("LazySave skipped in RoomList, Because we are lazy")
-				continue
-			}
-			rl.Mutex.RUnlock()
 
-			// 同步
-			rl.Mutex.Lock()
-			err := rl.SaveNow()
-			if err != nil {
-				log.Warn().Err(err).Msg("LazySave failed in RoomList. Some not important data may be lost")
-			} else {
-				log.Info().Msg("LazySave succeeded in RoomList")
-				rl.IsSyncedWithFile = true
+				// 同步
+				rl.Mutex.Lock()
+				err := rl.SaveNow()
+				if err != nil {
+					log.Warn().Err(err).Msg("LazySave failed in RoomList. Some not important data may be lost")
+				} else {
+					log.Info().Msg("LazySave succeeded in RoomList")
+					rl.IsSyncedWithFile = true
+				}
+				rl.Mutex.Unlock()
 			}
-			rl.Mutex.Unlock()
 		}
 	}()
 }

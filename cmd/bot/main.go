@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
@@ -27,6 +28,16 @@ func init() {
 func main() {
 	flag.Parse()
 
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
+	// 准备上下文
+	ctx, cancel := context.WithCancel(context.Background())
+	var dbWg, wg sync.WaitGroup
+
+	// 接受信号
+	stopBySig(cancel)
+
 	// 准备配置
 	cfg := config.NewConfig(CONFIG_PATH)
 	if err := cfg.Load(); err != nil {
@@ -39,6 +50,7 @@ func main() {
 	}
 
 	// 准备数据库
+	// RoomList 数据库
 	roomlist := &database.RoomList{
 		Path:     cfg.Content.DataBase.RoomList,
 		ByChatID: make(map[int64]database.RoomInfo),
@@ -46,16 +58,35 @@ func main() {
 	}
 	if err := roomlist.Load(); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			log.Warn().Msg("KV store file not found, starting with empty store")
+			log.Warn().Msg("RoomList file not found, starting with empty store")
 		} else {
-			log.Fatal().Err(err).Msg("Failed to load KV store")
+			log.Fatal().Err(err).Msg("Failed to load RoomList")
 			return
 		}
 	}
 	roomlist.IsSyncedWithFile = true
-	roomlist.LazySave()
+	roomlist.LazySave(ctx, &dbWg)
+
+	// EventList 数据库
+	events := &database.EventList{
+		Path:      cfg.Content.DataBase.EventList,
+		ByEventID: make(map[id.EventID]database.EventInfo),
+	}
+	if err := events.Load(); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			log.Warn().Msg("EventList file not found, starting with empty store")
+		} else {
+			log.Fatal().Err(err).Msg("Failed to load EventList")
+			return
+		}
+	}
+	events.IsSyncedWithFile = true
+	events.LazySave(ctx, &dbWg)
+
+	// 载入数据库
 	database := &database.DataBase{
-		RoomList: roomlist,
+		RoomList:  roomlist,
+		EventList: events,
 	}
 
 	// 准备 Worker
@@ -74,8 +105,10 @@ func main() {
 
 	syncer := mautrix.NewDefaultSyncer()
 	syncer.OnEventType(event.EventMessage, func(ctx context.Context, ev *event.Event) {
+		wg.Add(1)
 		go func() {
 			worker.FromMatrix(ctx, ev)
+			wg.Done()
 		}()
 	})
 	matrix.Syncer = syncer
@@ -83,8 +116,10 @@ func main() {
 	// 准备 Telegram 客户端
 	opts := []bot.Option{
 		bot.WithDefaultHandler(func(ctx context.Context, bot *bot.Bot, update *models.Update) {
+			wg.Add(1)
 			go func() {
-				worker.FromTelegram(ctx, bot, update)
+				worker.FromTelegram(ctx, &wg, bot, update)
+				wg.Done()
 			}()
 		}),
 		bot.WithSkipGetMe(),
@@ -96,11 +131,9 @@ func main() {
 	}
 	worker.Telegram = telegram
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-
 	// 启动客户端必须在准备好 Worker 之后，而不是在不同的 goroutine 中
 
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		// 启动 Matrix 客户端
@@ -108,7 +141,7 @@ func main() {
 		// 检查是否需要登陆
 		if cfg.Content.Matrix.Token == "" {
 			log.Info().Msg("Login Matrix...")
-			if err := matrixLogin(matrix, &cfg.Content.Matrix); err != nil {
+			if err := matrixLogin(ctx, matrix, &cfg.Content.Matrix); err != nil {
 				log.Fatal().Err(err).Msg("Failed to login")
 				return
 			}
@@ -118,11 +151,15 @@ func main() {
 		}
 
 		for {
-			if err := matrix.Sync(); err != nil {
+			if err := matrix.SyncWithContext(ctx); err != nil {
+				if errors.Is(err, context.Canceled) {
+					log.Info().Msg("Context canceled, exiting Matrix sync loop")
+					return
+				}
 				if errors.Is(err, mautrix.MUnknownToken) {
 					log.Warn().Msg("Token expired, relogin...")
 					matrix.AccessToken = ""
-					if err := matrixLogin(matrix, &cfg.Content.Matrix); err != nil {
+					if err := matrixLogin(ctx, matrix, &cfg.Content.Matrix); err != nil {
 						log.Fatal().Err(err).Msg("Failed to relogin")
 					}
 					cfg.Save()
@@ -130,27 +167,32 @@ func main() {
 				}
 				if errors.Is(err, mautrix.MInvalidParam) {
 					log.Warn().Msg("Username format error, relogin...")
-					if err := matrixLogin(matrix, &cfg.Content.Matrix); err != nil {
+					if err := matrixLogin(ctx, matrix, &cfg.Content.Matrix); err != nil {
 						log.Fatal().Err(err).Msg("Failed to relogin")
 					}
 					cfg.Save()
 					continue
 				}
-				log.Fatal().Err(err).Msg("Sync failed")
+				log.Warn().Err(err).Msg("Sync failed")
 				return
 			}
 		}
 	}()
 
 	// 检查 Telegram 客户端
+	wg.Add(1)
 	go func() {
-		telegramLogin(telegram, &wg)
+		telegramLogin(ctx, telegram, &wg)
+		wg.Done()
 	}()
 	// 启动 Telegram 客户端
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		telegram.Start(context.Background())
+		telegram.Start(ctx)
 	}()
 
+	dbWg.Wait()
 	wg.Wait()
+	log.Info().Msg("Shutting down gracefully")
 }

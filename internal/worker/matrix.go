@@ -1,34 +1,56 @@
 package worker
 
 import (
+	"MewLink/internal/database"
 	"context"
 
 	"github.com/go-telegram/bot"
 	"github.com/rs/zerolog/log"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 )
 
 func (w *Worker) FromMatrix(ctx context.Context, ev *event.Event) {
-	// 如果不是指定用户发送的消息，忽略
-	if ev.Sender.String() != w.Config.Content.ServedUser {
+	// 检查消息是否是自己发的
+	if ev.Sender == id.UserID(w.Config.Content.Matrix.Username) {
+		return
+	}
+	// 从 database.RoomList 中获取房间相关信息
+	info, found := w.DB.RoomList.GetRoomInfoByRoomID(ev.RoomID)
+	log.Info().Bool("Found", found).
+		Str("RoomID", ev.RoomID.String())
+	if !found {
 		return
 	}
 
-	// 从 kv 中获取 Telegram Chat ID
-	chatID, found := w.KVStore.GetChatID(ev.RoomID)
-	if !found {
-		// 如果没有找到 Chat ID，说明根本没有对应的 Chat，直接返回
+	// 检查消息是否处理过
+	_, found = w.DB.EventList.GetEventInfoByEventID(ev.ID)
+	if found {
+		log.Warn().Str("EventID", ev.ID.String()).Msg("Event already processed")
 		return
 	}
 
 	log.Info().
-		Str("RoomID", ev.RoomID.String()).
+		Str("RoomName", info.RoomName).
 		Str("Text", ev.Content.AsMessage().Body).
 		Msg("Received message from Matrix")
 
+	// 检查是否是空消息
+	if ev.Content.AsMessage().Body == "" {
+		return
+	}
+
+	// 保存消息
+	err := w.DB.EventList.Set(database.EventInfo{
+		EventID: ev.ID,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to save event")
+	}
+
 	// 转发消息到 Telegram
-	_, err := w.Telegram.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: chatID,
+	_, err = w.Telegram.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: info.ChatID,
 		Text:   ev.Content.AsMessage().Body,
 	})
 
@@ -38,5 +60,18 @@ func (w *Worker) FromMatrix(ctx context.Context, ev *event.Event) {
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to send message to Matrix")
 		}
+	}
+
+	// 发送已读回执
+	err = w.Matrix.SendReceipt(ctx, ev.RoomID, ev.ID, "m.read", nil)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to send receipt")
+	}
+
+	// 更新房间信息
+	// 这不是很急的操作，所以使用已经用完的 goroutine 而不是新的 goroutine
+	err = w.UpdateProfile(&info)
+	if err != nil {
+		log.Err(err).Msg("Failed to update profile")
 	}
 }

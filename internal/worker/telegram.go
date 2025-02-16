@@ -1,8 +1,10 @@
 package worker
 
 import (
+	"MewLink/internal/database"
 	"context"
 	"strconv"
+	"sync"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -11,17 +13,28 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-func (w *Worker) FromTelegram(ctx context.Context, b *bot.Bot, update *models.Update) {
+func (w *Worker) FromTelegram(ctx context.Context, wg *sync.WaitGroup, b *bot.Bot, update *models.Update) {
 	username := GetUserName(update)
 	log.Info().
 		Str("Username", username).
 		Str("Text", update.Message.Text).
 		Msg("Received message from Telegram")
 
-	// 从 kv 中获取 Matrix 房间 ID
-	roomID, found := w.KVStore.GetRoomID(update.Message.Chat.ID)
+	// 从 database.RoomList 中获取房间相关信息
+	info, found := w.DB.RoomList.GetRoomInfoByChatID(update.Message.Chat.ID)
 	if !found {
 		log.Info().Msg("New chat, create room")
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   "Welcome to MeowLink! 🐾\nFrom this message onwards, your message will be forwarded to Matrix friends.",
+			})
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to send message to Telegram")
+			}
+		}()
 		resp, err := w.Matrix.CreateRoom(ctx, &mautrix.ReqCreateRoom{
 			Name: username,
 			Invite: []id.UserID{
@@ -35,25 +48,40 @@ func (w *Worker) FromTelegram(ctx context.Context, b *bot.Bot, update *models.Up
 			w.SendErrToTG(ctx, update.Message.Chat.ID, err)
 			return
 		}
-		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   "Welcome to MeowLink! 🐾\nYour message has been forwarded to your Matrix friend. Please be patient as they reply.",
-		})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			info = database.RoomInfo{
+				ChatID:   update.Message.Chat.ID,
+				RoomID:   resp.RoomID,
+				RoomName: username,
+			}
+			err = w.DB.RoomList.Set(info)
+			if err != nil {
+				w.SendErrToTG(ctx, update.Message.Chat.ID, err)
+				log.Fatal().Err(err).Msg("Failed to save room info")
+			}
+		}()
+		// 房间创建完后的第一条消息不转发，因为 Matrix HS 很可能还没准备好房间
+		// 第一条消息通常也不是很重要，所以不转发也没关系
+	} else {
+		// 转发消息到 Matrix
+		_, err := w.Matrix.SendText(ctx, info.RoomID, update.Message.Text)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to send message to Telegram")
-		}
-		roomID = resp.RoomID
-		err = w.KVStore.Set(update.Message.Chat.ID, roomID)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to save KV store")
+			log.Error().Err(err).Msg("Failed to send message to Matrix")
+			w.SendErrToTG(ctx, update.Message.Chat.ID, err)
 		}
 	}
 
-	// 转发消息到 Matrix
-	_, err := w.Matrix.SendText(ctx, roomID, update.Message.Text)
+	// 更新房间信息
+	// 这不是很急的操作，所以使用已经用完的 goroutine 而不是新的 goroutine
+	err := w.UpdateRoomNameByInput(&info, username)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to send message to Matrix")
-		w.SendErrToTG(ctx, update.Message.Chat.ID, err)
+		log.Err(err).Msg("Failed to update room name")
+	}
+	err = w.UpdateProfile(&info)
+	if err != nil {
+		log.Err(err).Msg("Failed to update profile")
 	}
 }
 

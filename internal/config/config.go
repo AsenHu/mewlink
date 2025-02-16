@@ -3,6 +3,8 @@ package config
 import (
 	"encoding/json"
 	"os"
+
+	"maunium.net/go/mautrix/id"
 )
 
 type Config struct {
@@ -11,19 +13,19 @@ type Config struct {
 }
 
 type Content struct {
-	ServedUser string `json:"servedUser"`
-	Matrix   Matrix   `json:"matrix"`
-	Telegram Telegram `json:"telegram"`
-	DataBase string   `json:"database"`
+	ServedUser string   `json:"servedUser"`
+	Matrix     Matrix   `json:"matrix"`
+	Telegram   Telegram `json:"telegram"`
+	DataBase   DataBase `json:"databasePath"`
 }
 
 type Matrix struct {
-	BaseURL     string `json:"baseURL"`
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	DeviceID    string `json:"deviceID"`
-	Token       string `json:"token"`
-	AsyncUpload bool   `json:"asyncUpload"`
+	BaseURL     string      `json:"baseURL"`
+	Username    string      `json:"username"`
+	Password    string      `json:"password"`
+	DeviceID    id.DeviceID `json:"deviceID"`
+	Token       string      `json:"token"`
+	AsyncUpload bool        `json:"asyncUpload"`
 }
 
 type Telegram struct {
@@ -35,6 +37,11 @@ type Webhook struct {
 	Enable bool   `json:"enable"`
 	URL    string `json:"url"`
 	Port   int    `json:"listenPort"`
+}
+
+type DataBase struct {
+	RoomList  string `json:"roomList"`
+	EventList string `json:"eventList"`
 }
 
 func NewConfig(path string) Config {
@@ -53,7 +60,10 @@ func NewConfig(path string) Config {
 					Enable: false,
 				},
 			},
-			DataBase: "MeowLink.db",
+			DataBase: DataBase{
+				RoomList:  "MeowLink/roomlist.json",
+				EventList: "MeowLink/eventlist.json",
+			},
 		},
 	}
 }

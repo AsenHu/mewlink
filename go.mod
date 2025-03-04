@@ -1,11 +1,13 @@
-module MewLink
+module github.com/AsenHu/mewlink
 
 go 1.23.4
 
 require (
 	github.com/go-telegram/bot v1.14.0
 	github.com/rs/zerolog v1.33.0
-	maunium.net/go/mautrix v0.23.0
+	go.etcd.io/bbolt v1.4.0
+	google.golang.org/protobuf v1.36.5
+	maunium.net/go/mautrix v0.23.1
 )
 
 require (
@@ -16,8 +18,8 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	go.mau.fi/util v0.8.4 // indirect
+	go.mau.fi/util v0.8.5 // indirect
 	golang.org/x/crypto v0.33.0 // indirect
-	golang.org/x/exp v0.0.0-20250210185358-939b2ce775ac // indirect
+	golang.org/x/exp v0.0.0-20250215185904-eff6e970281f // indirect
 	golang.org/x/sys v0.30.0 // indirect
 )

@@ -1,0 +1,11 @@
+syntax = "proto3";
+option go_package = "github.com/AsenHu/mewlink/internal/upgrader/v1";
+
+message RoomInfo {
+  int64 ChatID = 1;
+  string RoomID = 2;
+  string RoomName = 3;
+  string Avatar = 4;
+  bool PinRoomName = 5;
+  bool PinAvatar = 6;
+}

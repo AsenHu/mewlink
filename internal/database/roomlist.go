@@ -1,184 +1,195 @@
 package database
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
-	"time"
 
+	types "github.com/AsenHu/mewlink/internal/upgrader/v1"
 	"github.com/rs/zerolog/log"
+	"go.etcd.io/bbolt"
+	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/id"
 )
 
 type RoomList struct {
-	Mutex            sync.RWMutex
-	Path             string
-	IsSyncedWithFile bool
-	ByChatID         map[int64]RoomInfo
-	ByRoomID         map[id.RoomID]RoomInfo
+	RoomInfoBucket Bucket
+	chatIDIndex    Bucket
+	roomIDIndex    Bucket
+	ChatIDMutex    sync.Map
+	RoomIDMutex    sync.Map
 }
 
-type RoomInfo struct {
-	ChatID           int64
-	RoomID           id.RoomID
-	RoomName         string
-	Avatar           string
-	LastCheckProfile time.Time
-}
+// 新建 RoomList
 
-func (rl *RoomList) GetRoomInfoByChatID(chatID int64) (RoomInfo, bool) {
-	rl.Mutex.RLock()
-	defer rl.Mutex.RUnlock()
-	val, ok := rl.ByChatID[chatID]
-	return val, ok
-}
+func newRoomList(db *bbolt.DB) (rl *RoomList, err error) {
+	rl = &RoomList{
+		RoomInfoBucket: Bucket{
+			database: db,
+			bucket:   []byte{bucketRoomListRoomInfo},
+			keyLen:   1,
+		},
+		chatIDIndex: Bucket{
+			database: db,
+			bucket:   []byte{bucketRoomListChatIDIndex},
+			keyLen:   1,
+		},
+		roomIDIndex: Bucket{
+			database: db,
+			bucket:   []byte{bucketRoomListRoomIDIndex},
+			keyLen:   1,
+		},
+	}
 
-func (rl *RoomList) GetRoomInfoByRoomID(roomID id.RoomID) (RoomInfo, bool) {
-	rl.Mutex.RLock()
-	defer rl.Mutex.RUnlock()
-	val, ok := rl.ByRoomID[roomID]
-	return val, ok
-}
+	// 检查 RoomInfo bucket 是否存在，如果不存在需要创建
 
-func (rl *RoomList) Load() error {
-	f, err := os.Open(rl.Path)
+	ext, err := rl.RoomInfoBucket.Exists()
 	if err != nil {
-		return err
+		return
 	}
-	defer f.Close()
-	dec := json.NewDecoder(f)
-	var list []RoomInfo
-	err = dec.Decode(&list)
-	if err != nil {
-		return err
-	}
-
-	rl.Mutex.Lock()
-	defer rl.Mutex.Unlock()
-	for _, room := range list {
-		rl.ByChatID[room.ChatID] = room
-		rl.ByRoomID[room.RoomID] = room
-	}
-	return nil
-}
-
-func (rl *RoomList) Set(info RoomInfo) (err error) {
-	rl.Mutex.Lock()
-	defer rl.Mutex.Unlock()
-	// 在房间已存在的情况下，更新房间信息
-	if info.ChatID != 0 {
-		if room, exists := rl.ByChatID[info.ChatID]; exists {
-			if info.RoomID != "" {
-				room.RoomID = info.RoomID
-			}
-			if info.RoomName != "" {
-				room.RoomName = info.RoomName
-			}
-			if info.Avatar != "" {
-				room.Avatar = info.Avatar
-			}
-			rl.ByChatID[info.ChatID] = room
-		} else {
-			rl.ByChatID[info.ChatID] = info
-		}
-	} else if info.RoomID != "" {
-		if room, exists := rl.ByRoomID[info.RoomID]; exists {
-			if info.ChatID != 0 {
-				room.ChatID = info.ChatID
-			}
-			if info.RoomName != "" {
-				room.RoomName = info.RoomName
-			}
-			if info.Avatar != "" {
-				room.Avatar = info.Avatar
-			}
-			rl.ByRoomID[info.RoomID] = room
-		} else {
-			rl.ByRoomID[info.RoomID] = info
-		}
-	} else {
-		return fmt.Errorf("no key provided")
-	}
-
-	// 如果 ChatID 和 RoomID 都有，说明这是重要的更新，需要立即保存
-	if info.ChatID != 0 && info.RoomID != "" {
-		err = rl.SaveNow()
+	if !ext {
+		log.Warn().Msg("RoomInfo bucket not found, creating")
+		err = rl.RoomInfoBucket.Create()
 		if err != nil {
 			return
 		}
-	} else {
-		rl.IsSyncedWithFile = false
 	}
-	return
-}
 
-// SaveNow 没有加锁，调用时请确保已经加锁
-func (rl *RoomList) SaveNow() (err error) {
-	// 创建目录
-	err = os.MkdirAll(filepath.Dir(rl.Path), 0700)
+	// 检查两个 index bucket 是否存在，如果不存在需要从 RoomInfo bucket 重建
+
+	chatIDExt, err := rl.chatIDIndex.Exists()
 	if err != nil {
-		return err
+		return
 	}
-
-	f, err := os.Create(rl.Path)
+	roomIDExt, err := rl.roomIDIndex.Exists()
 	if err != nil {
-		return err
+		return
 	}
-	defer f.Close()
-	var list []RoomInfo
-	for _, room := range rl.ByChatID {
-		list = append(list, room)
-	}
-	enc := json.NewEncoder(f)
-	err = enc.Encode(list)
-	rl.IsSyncedWithFile = true
-	return
-}
-
-func (rl *RoomList) LazySave(ctx context.Context, wg *sync.WaitGroup) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		log.Info().Msg("LazySave started in RoomList")
-		for {
-			select {
-			case <-ctx.Done():
-				// 上下文结束，立刻保存
-				log.Info().Msg("LazySave cancelled in RoomList")
-				rl.Mutex.Lock()
-				err := rl.SaveNow()
-				if err != nil {
-					log.Warn().Err(err).Msg("LazySave failed in RoomList during context cancellation. Some not important data may be lost")
-				} else {
-					log.Info().Msg("LazySave succeeded in RoomList during context cancellation")
-					rl.IsSyncedWithFile = true
-				}
-				rl.Mutex.Unlock()
-				return
-			case <-time.After(5 * time.Minute):
-				// 检查是否需要同步
-				rl.Mutex.RLock()
-				if rl.IsSyncedWithFile {
-					rl.Mutex.RUnlock()
-					log.Debug().Msg("LazySave skipped in RoomList, Because we are lazy")
-					continue
-				}
-				rl.Mutex.RUnlock()
-
-				// 同步
-				rl.Mutex.Lock()
-				err := rl.SaveNow()
-				if err != nil {
-					log.Warn().Err(err).Msg("LazySave failed in RoomList. Some not important data may be lost")
-				} else {
-					log.Info().Msg("LazySave succeeded in RoomList")
-					rl.IsSyncedWithFile = true
-				}
-				rl.Mutex.Unlock()
-			}
+	if !chatIDExt || !roomIDExt {
+		log.Warn().Msg("Index bucket not found, rebuilding")
+		err = rl.rebuildIndex()
+		if err != nil {
+			return
 		}
-	}()
+	}
+
+	return
+}
+
+// 重建 index bucket
+func (rl *RoomList) rebuildIndex() (err error) {
+	// 确保两个 index bucket 不存在
+	chatIDExt, err := rl.chatIDIndex.Exists()
+	if err != nil {
+		return
+	}
+	roomIDExt, err := rl.roomIDIndex.Exists()
+	if err != nil {
+		return
+	}
+	if chatIDExt {
+		err = rl.chatIDIndex.DeleteBucket()
+		if err != nil {
+			return
+		}
+	}
+	if roomIDExt {
+		err = rl.roomIDIndex.DeleteBucket()
+		if err != nil {
+			return
+		}
+	}
+	err = rl.chatIDIndex.Create()
+	if err != nil {
+		return
+	}
+	err = rl.roomIDIndex.Create()
+	if err != nil {
+		return
+	}
+
+	// 从 RoomInfo bucket 重建 index bucket
+	err = rl.RoomInfoBucket.database.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(rl.RoomInfoBucket.bucket).ForEach(func(k, v []byte) error {
+			var roomInfo types.RoomInfo
+			err := proto.Unmarshal(v, &roomInfo)
+			if err != nil {
+				return err
+			}
+
+			log.Debug().
+				Int64("ChatID", roomInfo.ChatID).
+				Str("RoomID", roomInfo.RoomID).
+				Str("Index", string(k)).
+				Msg("Rebuilding index")
+			// 重建 ChatID index
+			err = tx.Bucket([]byte{bucketRoomListChatIDIndex}).Put(chatID2Bytes(roomInfo.ChatID), k)
+			if err != nil {
+				return err
+			}
+
+			// 重建 RoomID index
+			err = tx.Bucket([]byte{bucketRoomListRoomIDIndex}).Put([]byte(roomInfo.RoomID), k)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+	})
+	return
+}
+
+// 使用 ChatID 查询 Index
+
+func (rl *RoomList) GetIndexByChatID(chatID int64) (index []byte, err error) {
+	// 从 ChatID 查询 Index
+	index, err = rl.chatIDIndex.Get(chatID2Bytes(chatID))
+	return
+}
+
+// 使用 RoomID 查询 Index
+
+func (rl *RoomList) GetIndexByRoomID(roomID id.RoomID) (index []byte, err error) {
+	// 从 RoomID 查询 Index
+	return rl.roomIDIndex.Get([]byte(roomID))
+}
+
+// 使用 Index 查询 RoomInfo
+
+func (rl *RoomList) GetRoomInfoByIndex(index []byte) (roomInfo *types.RoomInfo, err error) {
+	// 从 Index 查询 RoomInfo
+	data, err := rl.RoomInfoBucket.Get(index)
+	if err != nil {
+		return
+	}
+	if data == nil {
+		return
+	}
+
+	roomInfo = &types.RoomInfo{}
+
+	// 反序列化 RoomInfo
+	err = proto.Unmarshal(data, roomInfo)
+	return
+}
+
+// 设置 RoomInfo 到 Index
+
+func (rl *RoomList) SetRoomInfoByIndex(index []byte, roomInfo *types.RoomInfo) (err error) {
+	data, err := proto.Marshal(roomInfo)
+	if err != nil {
+		return
+	}
+	return rl.RoomInfoBucket.Put(index, data)
+}
+
+// 设置 ChatID 到 Index
+
+func (rl *RoomList) SetChatIDIndex(chatID int64, index []byte) (err error) {
+	return rl.chatIDIndex.Put(chatID2Bytes(chatID), index)
+}
+
+// 设置 RoomID 到 Index
+
+func (rl *RoomList) SetRoomIDIndex(roomID id.RoomID, index []byte) (err error) {
+	return rl.roomIDIndex.Put([]byte(roomID), index)
 }

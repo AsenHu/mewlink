@@ -1,5 +1,5 @@
 syntax = "proto3";
-option go_package = "github.com/AsenHu/mewlink/internal/upgrader/v1";
+option go_package = "github.com/AsenHu/mewlink/internal/types";
 
 message RoomInfo {
   int64 ChatID = 1;

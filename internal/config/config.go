@@ -4,30 +4,59 @@ import (
 	"encoding/json"
 	"os"
 
-	config "github.com/AsenHu/mewlink/internal/upgrader/v1"
 	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix/id"
 )
 
 type Config struct {
 	Path    string
-	Content config.Content
+	Content Content
+}
+
+type Content struct {
+	LogLevel   zerolog.Level `json:"logLevel"`
+	ServedUser string        `json:"servedUser"`
+	Matrix     Matrix        `json:"matrix"`
+	Telegram   Telegram      `json:"telegram"`
+	DataBase   string        `json:"databasePath"`
+	Version    uint8         `json:"version"`
+}
+
+type Matrix struct {
+	BaseURL     string      `json:"baseURL"`
+	Username    string      `json:"username"`
+	Password    string      `json:"password"`
+	DeviceID    id.DeviceID `json:"deviceID"`
+	Token       string      `json:"token"`
+	AsyncUpload bool        `json:"asyncUpload"`
+}
+
+type Telegram struct {
+	Token   string  `json:"token"`
+	Webhook Webhook `json:"webhook"`
+}
+
+type Webhook struct {
+	Enable bool   `json:"enable"`
+	URL    string `json:"url"`
+	Port   int    `json:"listenPort"`
 }
 
 func NewConfig(path string) *Config {
 	return &Config{
 		Path: path,
-		Content: config.Content{
+		Content: Content{
 			LogLevel:   zerolog.InfoLevel,
 			ServedUser: "@user:example.com",
-			Matrix: config.Matrix{
+			Matrix: Matrix{
 				BaseURL:     "https://example.com",
 				Username:    "@bot:example.com",
 				Password:    "password",
 				DeviceID:    "MEWLINK",
 				AsyncUpload: true,
 			},
-			Telegram: config.Telegram{
-				Webhook: config.Webhook{
+			Telegram: Telegram{
+				Webhook: Webhook{
 					Enable: false,
 				},
 			},
@@ -44,7 +73,7 @@ func (c *Config) Load() (err error) {
 		return
 	}
 	// 解析文件
-	return c.unmarshal(buffer)
+	return json.Unmarshal(buffer, &c.Content)
 }
 
 func (c *Config) Save() (err error) {

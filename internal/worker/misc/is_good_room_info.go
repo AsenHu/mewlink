@@ -1,7 +1,7 @@
 package misc
 
 import (
-	types "github.com/AsenHu/mewlink/internal/upgrader/v1"
+	"github.com/AsenHu/mewlink/internal/types"
 	"github.com/rs/zerolog/log"
 )
 

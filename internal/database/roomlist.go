@@ -3,7 +3,7 @@ package database
 import (
 	"sync"
 
-	types "github.com/AsenHu/mewlink/internal/upgrader/v1"
+	"github.com/AsenHu/mewlink/internal/types"
 	"github.com/rs/zerolog/log"
 	"go.etcd.io/bbolt"
 	"google.golang.org/protobuf/proto"

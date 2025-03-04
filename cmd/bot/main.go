@@ -26,16 +26,16 @@ func init() {
 
 func main() {
 	// 强制关闭
-	///*
-	go func() {
-		forceClose := make(chan os.Signal, 1)
-		signal.Notify(forceClose, syscall.SIGINT)
-		for i := 0; i < 8; i++ {
-			<-forceClose
-		}
-		log.Fatal().Msg("Force closed")
-	}()
-	//*/
+	/*
+		go func() {
+			forceClose := make(chan os.Signal, 1)
+			signal.Notify(forceClose, syscall.SIGINT)
+			for i := 0; i < 8; i++ {
+				<-forceClose
+			}
+			log.Fatal().Msg("Force closed")
+		}()
+		//*/
 
 	flag.Parse()
 
@@ -58,7 +58,7 @@ func main() {
 	}
 
 	// 日志
-	cfg.Content.LogLevel = zerolog.DebugLevel
+	//cfg.Content.LogLevel = zerolog.DebugLevel
 	zerolog.SetGlobalLevel(cfg.Content.LogLevel)
 
 	// 准备上下文

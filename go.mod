@@ -3,7 +3,7 @@ module MewLink
 go 1.23.4
 
 require (
-	github.com/go-telegram/bot v1.14.0
+	github.com/go-telegram/bot v1.14.1
 	github.com/rs/zerolog v1.33.0
 	maunium.net/go/mautrix v0.23.0
 )

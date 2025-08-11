@@ -6,7 +6,7 @@ require (
 	github.com/go-telegram/bot v1.14.2
 	github.com/rs/zerolog v1.34.0
 	go.etcd.io/bbolt v1.4.0
-	google.golang.org/protobuf v1.36.6
+	google.golang.org/protobuf v1.36.7
 	maunium.net/go/mautrix v0.23.3
 )
 
